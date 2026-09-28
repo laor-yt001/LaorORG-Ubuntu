@@ -11,7 +11,7 @@ jobs:
     name: LaorORG Ubuntu XFCE RDP
     runs-on: ubuntu-24.04
 
-    timeout-minutes: 350
+    timeout-minutes: 43200
 
     env:
       RDP_USER: runneradmin
@@ -22,7 +22,7 @@ jobs:
     steps:
 
       # ============================================================
-      # UPDATE
+      # 1. UPDATE UBUNTU
       # ============================================================
       - name: Update Ubuntu
         shell: bash
@@ -36,9 +36,9 @@ jobs:
 
 
       # ============================================================
-      # INSTALL XFCE + XRDP
+      # 2. INSTALL DESKTOP + XRDP + DBUS
       # ============================================================
-      - name: Install XFCE XRDP DBUS
+      - name: Install XFCE XRDP DBus
         shell: bash
         run: |
           set -eux
@@ -53,6 +53,7 @@ jobs:
             xfce4-panel \
             xfce4-settings \
             xfce4-terminal \
+            thunar \
             dbus \
             dbus-x11 \
             dbus-user-session \
@@ -76,16 +77,20 @@ jobs:
             ufw
 
           echo ""
-          echo "Installed:"
-          command -v startxfce4
+          echo "============================================================"
+          echo " XFCE INSTALLATION CHECK"
+          echo "============================================================"
+
           command -v xfce4-session
+          command -v startxfce4
+          command -v xfconfd
           command -v xfconf-query
-          command -v dbus-launch
           command -v dbus-run-session
+          command -v xrdp
 
 
       # ============================================================
-      # HOSTNAME
+      # 3. HOSTNAME
       # ============================================================
       - name: Configure Hostname
         shell: bash
@@ -101,17 +106,19 @@ jobs:
               sudo tee -a /etc/hosts
           fi
 
+          hostname
+
 
       # ============================================================
-      # CREATE RDP USER
+      # 4. CREATE RDP USER
       # ============================================================
-      - name: Create RDP User
+      - name: Create runneradmin
         shell: bash
         run: |
           set -eux
 
           if [ -z "$RDP_PASSWORD" ]; then
-            echo "ERROR: RDP_PASSWORD is empty."
+            echo "ERROR: RDP_PASSWORD secret is empty."
             exit 1
           fi
 
@@ -119,8 +126,8 @@ jobs:
             echo "$RDP_USER already exists."
           else
             sudo useradd \
-              --create-home \
-              --shell /bin/bash \
+              -m \
+              -s /bin/bash \
               "$RDP_USER"
           fi
 
@@ -140,96 +147,274 @@ jobs:
             "$RDP_USER:$RDP_USER" \
             "/home/$RDP_USER"
 
+          echo ""
+          echo "User:"
+          id "$RDP_USER"
+
 
       # ============================================================
-      # CLEAN OLD XFCE SESSION
+      # 5. CREATE CORRECT XFCE FAILSAFE CONFIGURATION
       # ============================================================
-      - name: Clean XFCE Session
+      - name: Create XFCE Failsafe Configuration
         shell: bash
         run: |
           set -eux
 
           USER_HOME="/home/$RDP_USER"
 
-          # Remove stale XFCE sessions.
-          sudo rm -rf \
-            "$USER_HOME/.cache/sessions"
+          # --------------------------------------------------------
+          # SYSTEM XFCE CONFIGURATION
+          # --------------------------------------------------------
+          XFCE_SYSTEM_DIR="/etc/xdg/xfce4/xfconf/xfce-perchannel-xml"
 
-          # Remove stale session files.
-          sudo rm -f \
-            "$USER_HOME/.Xauthority" \
-            "$USER_HOME/.ICEauthority"
+          sudo mkdir -p "$XFCE_SYSTEM_DIR"
 
-          # Recreate cache.
-          sudo -u "$RDP_USER" mkdir -p \
-            "$USER_HOME/.cache"
+          # This is the critical configuration.
+          sudo tee \
+            "$XFCE_SYSTEM_DIR/xfce4-session.xml" \
+            > /dev/null <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
 
-          sudo -u "$RDP_USER" mkdir -p \
-            "$USER_HOME/.config"
+          <channel name="xfce4-session" version="1.0">
+
+            <property name="general" type="empty">
+
+              <property
+                name="FailsafeSessionName"
+                type="string"
+                value="Failsafe"/>
+
+              <property
+                name="SessionName"
+                type="string"
+                value="Default"/>
+
+              <property
+                name="SaveOnExit"
+                type="bool"
+                value="false"/>
+
+              <property
+                name="PromptOnLogout"
+                type="bool"
+                value="false"/>
+
+            </property>
+
+            <property name="sessions" type="empty">
+
+              <property name="Failsafe" type="empty">
+
+                <property
+                  name="IsFailsafe"
+                  type="bool"
+                  value="true"/>
+
+                <property
+                  name="Count"
+                  type="int"
+                  value="5"/>
+
+                <property
+                  name="Client0_Command"
+                  type="array">
+                  <value type="string" value="xfwm4"/>
+                </property>
+
+                <property
+                  name="Client0_PerScreen"
+                  type="bool"
+                  value="false"/>
+
+                <property
+                  name="Client0_Priority"
+                  type="int"
+                  value="15"/>
+
+                <property
+                  name="Client1_Command"
+                  type="array">
+                  <value type="string" value="xfsettingsd"/>
+                </property>
+
+                <property
+                  name="Client1_PerScreen"
+                  type="bool"
+                  value="false"/>
+
+                <property
+                  name="Client1_Priority"
+                  type="int"
+                  value="20"/>
+
+                <property
+                  name="Client2_Command"
+                  type="array">
+                  <value type="string" value="xfce4-panel"/>
+                </property>
+
+                <property
+                  name="Client2_PerScreen"
+                  type="bool"
+                  value="false"/>
+
+                <property
+                  name="Client2_Priority"
+                  type="int"
+                  value="25"/>
+
+                <property
+                  name="Client3_Command"
+                  type="array">
+                  <value type="string" value="Thunar"/>
+                  <value type="string" value="--daemon"/>
+                </property>
+
+                <property
+                  name="Client3_PerScreen"
+                  type="bool"
+                  value="false"/>
+
+                <property
+                  name="Client3_Priority"
+                  type="int"
+                  value="30"/>
+
+                <property
+                  name="Client4_Command"
+                  type="array">
+                  <value type="string" value="xfdesktop"/>
+                </property>
+
+                <property
+                  name="Client4_PerScreen"
+                  type="bool"
+                  value="false"/>
+
+                <property
+                  name="Client4_Priority"
+                  type="int"
+                  value="35"/>
+
+              </property>
+
+            </property>
+
+            <property name="shutdown" type="empty">
+
+              <property
+                name="LockScreen"
+                type="bool"
+                value="false"/>
+
+            </property>
+
+          </channel>
+          EOF
+
+          sudo chmod 644 \
+            "$XFCE_SYSTEM_DIR/xfce4-session.xml"
+
+
+          # --------------------------------------------------------
+          # USER XFCE CONFIGURATION
+          # --------------------------------------------------------
+          USER_XFCE_DIR="$USER_HOME/.config/xfce4/xfconf/xfce-perchannel-xml"
+
+          sudo mkdir -p "$USER_XFCE_DIR"
+
+          sudo cp \
+            "$XFCE_SYSTEM_DIR/xfce4-session.xml" \
+            "$USER_XFCE_DIR/xfce4-session.xml"
 
           sudo chown -R \
             "$RDP_USER:$RDP_USER" \
-            "$USER_HOME"
+            "$USER_HOME/.config"
+
+
+          # --------------------------------------------------------
+          # REMOVE CORRUPTED SESSION CACHE
+          # --------------------------------------------------------
+          sudo rm -rf \
+            "$USER_HOME/.cache/sessions"
+
+          sudo mkdir -p \
+            "$USER_HOME/.cache/sessions"
+
+          sudo chown -R \
+            "$RDP_USER:$RDP_USER" \
+            "$USER_HOME/.cache"
+
+
+          # --------------------------------------------------------
+          # VERIFY FILE
+          # --------------------------------------------------------
+          echo ""
+          echo "============================================================"
+          echo " XFCE SESSION CONFIG"
+          echo "============================================================"
+
+          cat \
+            "$XFCE_SYSTEM_DIR/xfce4-session.xml"
 
 
       # ============================================================
-      # XFCE XSESSION
+      # 6. CONFIGURE USER SESSION
       # ============================================================
-      - name: Configure XFCE XSession
+      - name: Configure User XFCE Session
         shell: bash
         run: |
           set -eux
 
           USER_HOME="/home/$RDP_USER"
 
-          # IMPORTANT:
-          # Keep this file simple.
-          # Do not add custom XDG_CONFIG_DIRS here.
           sudo tee "$USER_HOME/.xsession" > /dev/null <<'EOF'
           #!/bin/sh
 
           unset DBUS_SESSION_BUS_ADDRESS
           unset XDG_RUNTIME_DIR
 
+          export LANG=C.UTF-8
+          export LANGUAGE=C.UTF-8
+          export LC_ALL=C.UTF-8
+
           export XDG_SESSION_TYPE=x11
           export XDG_CURRENT_DESKTOP=XFCE
           export XDG_SESSION_DESKTOP=xfce
 
-          export XDG_CONFIG_DIRS="/etc/xdg/xdg-xfce:/etc/xdg"
+          export XDG_CONFIG_DIRS="/etc/xdg"
 
-          exec dbus-run-session -- xfce4-session
+          exec dbus-run-session -- startxfce4
           EOF
 
           sudo chmod 700 \
             "$USER_HOME/.xsession"
 
-          sudo chown \
-            "$RDP_USER:$RDP_USER" \
-            "$USER_HOME/.xsession"
-
-
-      # ============================================================
-      # XSESSIONRC
-      # ============================================================
-      - name: Configure XSession RC
-        shell: bash
-        run: |
-          set -eux
-
-          USER_HOME="/home/$RDP_USER"
 
           sudo tee "$USER_HOME/.xsessionrc" > /dev/null <<'EOF'
           unset DBUS_SESSION_BUS_ADDRESS
           unset XDG_RUNTIME_DIR
 
+          export LANG=C.UTF-8
+          export LANGUAGE=C.UTF-8
+          export LC_ALL=C.UTF-8
+
           export XDG_SESSION_TYPE=x11
           export XDG_CURRENT_DESKTOP=XFCE
           export XDG_SESSION_DESKTOP=xfce
-          export XDG_CONFIG_DIRS="/etc/xdg/xdg-xfce:/etc/xdg"
+
+          export XDG_CONFIG_DIRS="/etc/xdg"
           EOF
 
           sudo chmod 700 \
+            "$USER_HOME/.xsession"
+
+          sudo chmod 700 \
             "$USER_HOME/.xsessionrc"
+
+          sudo chown \
+            "$RDP_USER:$RDP_USER" \
+            "$USER_HOME/.xsession"
 
           sudo chown \
             "$RDP_USER:$RDP_USER" \
@@ -237,35 +422,7 @@ jobs:
 
 
       # ============================================================
-      # XFCE CONFIG DIRECTORY
-      # ============================================================
-      - name: Prepare XFCE Configuration
-        shell: bash
-        run: |
-          set -eux
-
-          # Make absolutely sure XFCE config directories exist.
-          sudo mkdir -p /etc/xdg/xdg-xfce
-
-          sudo mkdir -p \
-            /etc/xdg/xdg-xfce/xfce4
-
-          # Make sure the standard XFCE configuration exists.
-          if [ -d /etc/xdg/xfce4 ]; then
-            sudo cp -a \
-              /etc/xdg/xfce4/. \
-              /etc/xdg/xdg-xfce/xfce4/ \
-              || true
-          fi
-
-          echo ""
-          echo "XDG directories:"
-          ls -la /etc/xdg
-          ls -la /etc/xdg/xdg-xfce || true
-
-
-      # ============================================================
-      # XRDP STARTWM
+      # 7. CONFIGURE XRDP
       # ============================================================
       - name: Configure XRDP
         shell: bash
@@ -274,10 +431,8 @@ jobs:
 
           sudo cp \
             /etc/xrdp/startwm.sh \
-            /etc/xrdp/startwm.sh.original
+            /etc/xrdp/startwm.sh.backup
 
-          # IMPORTANT:
-          # Do not fall through into another desktop session.
           sudo tee /etc/xrdp/startwm.sh > /dev/null <<'EOF'
           #!/bin/sh
 
@@ -292,26 +447,30 @@ jobs:
           unset DBUS_SESSION_BUS_ADDRESS
           unset XDG_RUNTIME_DIR
 
+          export LANG=C.UTF-8
+          export LANGUAGE=C.UTF-8
+          export LC_ALL=C.UTF-8
+
           export XDG_SESSION_TYPE=x11
           export XDG_CURRENT_DESKTOP=XFCE
           export XDG_SESSION_DESKTOP=xfce
-          export XDG_CONFIG_DIRS="/etc/xdg/xdg-xfce:/etc/xdg"
 
-          # Start exactly one XFCE session.
-          exec dbus-run-session -- xfce4-session
+          # IMPORTANT:
+          # /etc must be present.
+          export XDG_CONFIG_DIRS="/etc/xdg"
+
+          # Start a fresh D-Bus session.
+          exec dbus-run-session -- startxfce4
           EOF
 
           sudo chmod +x \
             /etc/xrdp/startwm.sh
 
-          # XRDP certificate permission.
           sudo adduser xrdp ssl-cert || true
 
-          # Enable XRDP.
           sudo systemctl enable xrdp
           sudo systemctl enable xrdp-sesman
 
-          # Restart.
           sudo systemctl restart xrdp-sesman
           sudo systemctl restart xrdp
 
@@ -323,54 +482,39 @@ jobs:
 
 
       # ============================================================
-      # VERIFY XFCE WITHOUT RDP
+      # 8. TEST XFCONF / FAILSAFE
       # ============================================================
-      - name: Test XFCE Session
+      - name: Verify XFCE Configuration
         shell: bash
         run: |
-          set +e
+          set -eux
 
           USER_HOME="/home/$RDP_USER"
 
+          echo ""
           echo "============================================================"
-          echo " XFCE TEST"
+          echo " XFCE CONFIGURATION TEST"
           echo "============================================================"
 
           echo ""
-          echo "XFCE:"
-          command -v xfce4-session
-          xfce4-session --version
+          echo "System config:"
+          cat \
+            /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml
 
           echo ""
-          echo "XFConf:"
-          command -v xfconf-query
-
-          echo ""
-          echo "DBus:"
-          command -v dbus-run-session
-          dbus-run-session --version
+          echo "User config:"
+          cat \
+            "$USER_HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml"
 
           echo ""
           echo "XDG_CONFIG_DIRS:"
-          echo "/etc/xdg/xdg-xfce:/etc/xdg"
-
-          echo ""
-          echo "XDG XFCE:"
-          ls -la /etc/xdg/xdg-xfce || true
-
-          echo ""
-          echo "User files:"
-          ls -la "$USER_HOME/.xsession"
-          ls -la "$USER_HOME/.xsessionrc"
-
-          echo ""
-          echo "Ownership:"
-          stat "$USER_HOME/.xsession"
-          stat "$USER_HOME/.xsessionrc"
+          sudo -u "$RDP_USER" \
+            env XDG_CONFIG_DIRS=/etc/xdg \
+            bash -c 'echo "$XDG_CONFIG_DIRS"'
 
 
       # ============================================================
-      # INSTALL TAILSCALE
+      # 9. INSTALL TAILSCALE
       # ============================================================
       - name: Install Tailscale
         shell: bash
@@ -378,7 +522,7 @@ jobs:
           set -eux
 
           if [ -z "$TAILSCALE_AUTH_KEY" ]; then
-            echo "ERROR: TAILSCALE_AUTH_KEY is empty."
+            echo "ERROR: TAILSCALE_AUTH_KEY secret is empty."
             exit 1
           fi
 
@@ -394,7 +538,7 @@ jobs:
 
 
       # ============================================================
-      # CONNECT TAILSCALE
+      # 10. CONNECT TAILSCALE
       # ============================================================
       - name: Connect Tailscale
         shell: bash
@@ -408,22 +552,21 @@ jobs:
 
           sleep 5
 
-          echo ""
-          echo "Tailscale:"
-          tailscale status
-
-          echo ""
-          echo "IPv4:"
-
           TAILSCALE_IP=$(tailscale ip -4)
-
-          echo "$TAILSCALE_IP"
 
           echo "TAILSCALE_IP=$TAILSCALE_IP" >> "$GITHUB_ENV"
 
+          echo ""
+          echo "Tailscale IP:"
+          echo "$TAILSCALE_IP"
+
+          echo ""
+          echo "Tailscale status:"
+          tailscale status
+
 
       # ============================================================
-      # FIREWALL
+      # 11. FIREWALL
       # ============================================================
       - name: Configure Firewall
         shell: bash
@@ -435,7 +578,7 @@ jobs:
           sudo ufw default deny incoming
           sudo ufw default allow outgoing
 
-          # Only Tailscale can access RDP.
+          # RDP ONLY from Tailscale.
           sudo ufw allow \
             from 100.64.0.0/10 \
             to any port 3389 \
@@ -449,9 +592,9 @@ jobs:
 
 
       # ============================================================
-      # XRDP FINAL CHECK
+      # 12. VERIFY XRDP
       # ============================================================
-      - name: Final XRDP Check
+      - name: Verify XRDP
         shell: bash
         run: |
           set -eux
@@ -465,8 +608,8 @@ jobs:
           sudo systemctl is-active xrdp-sesman
 
           echo ""
-          echo "Port 3389:"
-          sudo ss -lntp | grep 3389
+          echo "Port:"
+          sudo ss -lntp | grep ':3389'
 
           echo ""
           echo "XRDP processes:"
@@ -474,7 +617,33 @@ jobs:
 
 
       # ============================================================
-      # SHUTDOWN / REBOOT PROTECTION
+      # 13. SHOW LOGS IF SOMETHING FAILS
+      # ============================================================
+      - name: Show XRDP Logs
+        if: always()
+        shell: bash
+        run: |
+          echo ""
+          echo "============================================================"
+          echo " XRDP LOG"
+          echo "============================================================"
+
+          sudo tail -100 \
+            /var/log/xrdp.log \
+            2>/dev/null || true
+
+          echo ""
+          echo "============================================================"
+          echo " XRDP SESMAN LOG"
+          echo "============================================================"
+
+          sudo tail -150 \
+            /var/log/xrdp-sesman.log \
+            2>/dev/null || true
+
+
+      # ============================================================
+      # 14. DISABLE SHUTDOWN / REBOOT
       # ============================================================
       - name: Disable Shutdown and Reboot
         shell: bash
@@ -490,23 +659,21 @@ jobs:
 
 
       # ============================================================
-      # DISPLAY CONNECTION INFO
+      # 15. SHOW CONNECTION
       # ============================================================
-      - name: Show RDP Information
+      - name: Show RDP Connection
         shell: bash
         run: |
           TAILSCALE_IP=$(tailscale ip -4)
 
           echo ""
           echo "============================================================"
-          echo "       LAORORG UBUNTU GUI READY"
+          echo "        LAORORG UBUNTU GUI READY"
           echo "============================================================"
           echo ""
-          echo "Ubuntu:"
-          echo "24.04"
-          echo ""
-          echo "Desktop:"
-          echo "XFCE"
+          echo "OS       : Ubuntu 24.04"
+          echo "Desktop  : XFCE"
+          echo "Protocol : XRDP"
           echo ""
           echo "RDP:"
           echo "$TAILSCALE_IP:3389"
@@ -521,7 +688,7 @@ jobs:
 
 
       # ============================================================
-      # KEEP ALIVE
+      # 16. KEEP RUNNER ALIVE
       # ============================================================
       - name: Keep Runner Alive
         shell: bash
