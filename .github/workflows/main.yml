@@ -1,4 +1,4 @@
-name: LaorORG - Ubuntu XFCE XRDP
+name: LaorORG - Ubuntu Remote Desktop
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   secure-LaorORG:
+
     runs-on: ubuntu-24.04
 
     timeout-minutes: 5259600
@@ -26,13 +27,9 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "SYSTEM INFORMATION"
+          echo "LAORORG UBUNTU REMOTE DESKTOP"
           echo "============================================================"
 
-          echo "Hostname:"
-          hostname
-
-          echo
           echo "OS:"
           cat /etc/os-release
 
@@ -52,15 +49,11 @@ jobs:
           echo "Disk:"
           df -h /
 
-          echo
-          echo "Runner:"
-          whoami
-
           echo "============================================================"
 
 
       # ============================================================
-      # 2. UPDATE APT
+      # 2. UPDATE
       # ============================================================
       - name: Update Ubuntu
         shell: bash
@@ -71,15 +64,15 @@ jobs:
 
 
       # ============================================================
-      # 3. INSTALL XFCE + XRDP + DBUS
+      # 3. INSTALL XFCE + XRDP
       # ============================================================
-      - name: Install XFCE XRDP DBus
+      - name: Install Desktop Environment
         shell: bash
         run: |
           set -e
 
           echo "============================================================"
-          echo "INSTALL XFCE / XRDP / DBUS"
+          echo "INSTALL XFCE / XRDP"
           echo "============================================================"
 
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -89,6 +82,7 @@ jobs:
             xfdesktop4 \
             xfce4-panel \
             xfwm4 \
+            xfce4-terminal \
             thunar \
             dbus \
             dbus-x11 \
@@ -106,10 +100,7 @@ jobs:
             ufw
 
           echo
-          echo "Packages installed."
-
-          echo
-          echo "XFCE binaries:"
+          echo "XFCE:"
           command -v xfce4-session || true
           command -v startxfce4 || true
           command -v xfconf-query || true
@@ -124,85 +115,12 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "INSTALLATION COMPLETE"
+          echo "INSTALL COMPLETE"
           echo "============================================================"
 
 
       # ============================================================
-      # 4. DO NOT FAIL BECAUSE xfconfd IS NOT IN PATH
-      # ============================================================
-      - name: Verify XFCE Installation
-        shell: bash
-        run: |
-          set +e
-
-          echo "============================================================"
-          echo "XFCE INSTALLATION CHECK"
-          echo "============================================================"
-
-          echo
-          echo "---- XFCE binaries ----"
-
-          command -v xfce4-session || true
-          command -v startxfce4 || true
-          command -v xfconf-query || true
-
-          echo
-          echo "---- xfconfd location ----"
-
-          XFCONFD_PATH="$(dpkg -L xfconf 2>/dev/null | grep '/xfconfd$' | head -n 1)"
-
-          if [ -n "$XFCONFD_PATH" ]; then
-            echo "xfconfd found:"
-            echo "$XFCONFD_PATH"
-          else
-            echo "xfconfd was not found by dpkg."
-          fi
-
-          echo
-          echo "---- Installed XFCE packages ----"
-
-          dpkg -s xfconf >/dev/null 2>&1 \
-            && echo "xfconf: INSTALLED" \
-            || echo "xfconf: NOT INSTALLED"
-
-          dpkg -s xfce4-session >/dev/null 2>&1 \
-            && echo "xfce4-session: INSTALLED" \
-            || echo "xfce4-session: NOT INSTALLED"
-
-          dpkg -s xfce4 >/dev/null 2>&1 \
-            && echo "xfce4: INSTALLED" \
-            || echo "xfce4: NOT INSTALLED"
-
-          dpkg -s xrdp >/dev/null 2>&1 \
-            && echo "xrdp: INSTALLED" \
-            || echo "xrdp: NOT INSTALLED"
-
-          dpkg -s xorgxrdp >/dev/null 2>&1 \
-            && echo "xorgxrdp: INSTALLED" \
-            || echo "xorgxrdp: NOT INSTALLED"
-
-          dpkg -s dbus-x11 >/dev/null 2>&1 \
-            && echo "dbus-x11: INSTALLED" \
-            || echo "dbus-x11: NOT INSTALLED"
-
-          echo
-          echo "---- Versions ----"
-
-          xfce4-session --version 2>/dev/null || true
-          xfconf-query --version 2>/dev/null || true
-          xrdp --version 2>/dev/null || true
-
-          echo
-          echo "============================================================"
-          echo "XFCE CHECK COMPLETE"
-          echo "============================================================"
-
-          set -e
-
-
-      # ============================================================
-      # 5. CREATE runneradmin
+      # 4. CREATE runneradmin
       # ============================================================
       - name: Create runneradmin
         shell: bash
@@ -212,32 +130,22 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "CREATE USER: runneradmin"
+          echo "CREATE RDP USER"
           echo "============================================================"
 
           if [ -z "$RDP_PASSWORD" ]; then
-            echo "ERROR: RDP_PASSWORD GitHub Secret is not configured."
-            echo
-            echo "Create:"
-            echo "Repository Settings -> Secrets and variables -> Actions"
-            echo
-            echo "Secret name:"
-            echo "RDP_PASSWORD"
-            echo
-            echo "Example value:"
-            echo "Laor@001"
+            echo "ERROR:"
+            echo "GitHub Secret RDP_PASSWORD is missing."
             exit 1
           fi
 
           if id "$RDP_USER" >/dev/null 2>&1; then
-            echo "User $RDP_USER already exists."
+            echo "User already exists."
           else
             sudo useradd \
-              -m \
-              -s /bin/bash \
+              --create-home \
+              --shell /bin/bash \
               "$RDP_USER"
-
-            echo "Created $RDP_USER."
           fi
 
           echo "$RDP_USER:$RDP_PASSWORD" | sudo chpasswd
@@ -250,38 +158,62 @@ jobs:
           sudo chmod 440 "/etc/sudoers.d/$RDP_USER"
 
           echo
-          echo "User information:"
           id "$RDP_USER"
-
-          echo
-          echo "Home:"
-          sudo ls -ld "/home/$RDP_USER"
 
           echo "============================================================"
 
 
       # ============================================================
-      # 6. CREATE XFCE FAILSAFE CONFIGURATION
+      # 5. RESET XFCE USER CONFIGURATION
       # ============================================================
-      - name: Create XFCE Failsafe Configuration
+      - name: Reset XFCE User Configuration
         shell: bash
         run: |
           set -e
 
           echo "============================================================"
-          echo "CREATE XFCE FAILSAFE CONFIGURATION"
+          echo "RESET XFCE USER CONFIGURATION"
           echo "============================================================"
 
-          SYSTEM_XFCE_DIR="/etc/xdg/xfce4/xfconf/xfce-perchannel-xml"
-          USER_XFCE_DIR="/home/$RDP_USER/.config/xfce4/xfconf/xfce-perchannel-xml"
+          HOME_DIR="/home/$RDP_USER"
 
-          sudo mkdir -p "$SYSTEM_XFCE_DIR"
-          sudo mkdir -p "$USER_XFCE_DIR"
+          sudo rm -rf \
+            "$HOME_DIR/.config/xfce4" \
+            "$HOME_DIR/.cache/sessions" \
+            "$HOME_DIR/.cache/xfce4"
 
-          echo
-          echo "Creating system xfce4-session.xml..."
+          sudo mkdir -p \
+            "$HOME_DIR/.config/xfce4" \
+            "$HOME_DIR/.cache/sessions"
 
-          sudo tee "$SYSTEM_XFCE_DIR/xfce4-session.xml" >/dev/null <<'EOF'
+          sudo chown -R \
+            "$RDP_USER:$RDP_USER" \
+            "$HOME_DIR/.config" \
+            "$HOME_DIR/.cache"
+
+          echo "Old XFCE configuration removed."
+
+          echo "============================================================"
+
+
+      # ============================================================
+      # 6. CREATE SYSTEM XFCE CONFIG
+      # ============================================================
+      - name: Create XFCE Session Configuration
+        shell: bash
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "CREATE XFCE SESSION CONFIG"
+          echo "============================================================"
+
+          SYSTEM_DIR="/etc/xdg/xfce4/xfconf/xfce-perchannel-xml"
+
+          sudo mkdir -p "$SYSTEM_DIR"
+
+          sudo tee \
+            "$SYSTEM_DIR/xfce4-session.xml" >/dev/null <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
 
           <channel name="xfce4-session" version="1.0">
@@ -326,28 +258,57 @@ jobs:
 
                 <property
                   name="Client0_Command"
-                  type="string"
-                  value="xfwm4"/>
+                  type="array">
+
+                  <value
+                    type="string"
+                    value="xfwm4"/>
+
+                </property>
 
                 <property
                   name="Client1_Command"
-                  type="string"
-                  value="xfsettingsd"/>
+                  type="array">
+
+                  <value
+                    type="string"
+                    value="xfsettingsd"/>
+
+                </property>
 
                 <property
                   name="Client2_Command"
-                  type="string"
-                  value="xfce4-panel"/>
+                  type="array">
+
+                  <value
+                    type="string"
+                    value="xfce4-panel"/>
+
+                </property>
 
                 <property
                   name="Client3_Command"
-                  type="string"
-                  value="Thunar --daemon"/>
+                  type="array">
+
+                  <value
+                    type="string"
+                    value="Thunar"/>
+
+                  <value
+                    type="string"
+                    value="--daemon"/>
+
+                </property>
 
                 <property
                   name="Client4_Command"
-                  type="string"
-                  value="xfdesktop"/>
+                  type="array">
+
+                  <value
+                    type="string"
+                    value="xfdesktop"/>
+
+                </property>
 
               </property>
 
@@ -366,68 +327,59 @@ jobs:
           EOF
 
           echo
-          echo "Copying XFCE session configuration to runneradmin..."
+          echo "Configuration created:"
+          sudo ls -l "$SYSTEM_DIR/xfce4-session.xml"
+
+          echo "============================================================"
+
+
+      # ============================================================
+      # 7. CREATE USER XFCE CONFIG
+      # ============================================================
+      - name: Create User XFCE Configuration
+        shell: bash
+        run: |
+          set -e
+
+          HOME_DIR="/home/$RDP_USER"
+
+          USER_DIR="$HOME_DIR/.config/xfce4/xfconf/xfce-perchannel-xml"
+
+          sudo mkdir -p "$USER_DIR"
 
           sudo cp \
-            "$SYSTEM_XFCE_DIR/xfce4-session.xml" \
-            "$USER_XFCE_DIR/xfce4-session.xml"
+            /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml \
+            "$USER_DIR/xfce4-session.xml"
 
           sudo chown -R \
             "$RDP_USER:$RDP_USER" \
-            "/home/$RDP_USER/.config"
+            "$HOME_DIR/.config"
 
-          echo
-          echo "Deleting old XFCE session cache..."
-
-          sudo rm -rf \
-            "/home/$RDP_USER/.cache/sessions"
-
-          sudo mkdir -p \
-            "/home/$RDP_USER/.cache/sessions"
-
-          sudo chown -R \
-            "$RDP_USER:$RDP_USER" \
-            "/home/$RDP_USER/.cache"
-
-          echo
-          echo "---- SYSTEM CONFIG ----"
-
-          sudo grep -E \
-            'FailsafeSessionName|SessionName|IsFailsafe|Count' \
-            "$SYSTEM_XFCE_DIR/xfce4-session.xml" \
-            || true
-
-          echo
-          echo "---- USER CONFIG ----"
-
-          sudo grep -E \
-            'FailsafeSessionName|SessionName|IsFailsafe|Count' \
-            "$USER_XFCE_DIR/xfce4-session.xml" \
-            || true
-
-          echo
-          echo "============================================================"
-          echo "XFCE FAILSAFE CONFIGURATION CREATED"
-          echo "============================================================"
+          echo "User XFCE configuration:"
+          sudo cat "$USER_DIR/xfce4-session.xml"
 
 
       # ============================================================
-      # 7. CREATE .xsession
+      # 8. IMPORTANT: DO NOT FORCE XDG_CONFIG_DIRS
       # ============================================================
-      - name: Configure XFCE XSession
+      - name: Configure XSession
         shell: bash
         run: |
           set -e
 
           echo "============================================================"
-          echo "CONFIGURE USER XSESSION"
+          echo "CONFIGURE XRDP XSESSION"
           echo "============================================================"
 
-          sudo tee "/home/$RDP_USER/.xsession" >/dev/null <<'EOF'
+          HOME_DIR="/home/$RDP_USER"
+
+          sudo tee "$HOME_DIR/.xsession" >/dev/null <<'EOF'
           #!/bin/sh
 
+          unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
           unset XDG_RUNTIME_DIR
+          unset XDG_CONFIG_DIRS
 
           export LANG=C.UTF-8
           export LANGUAGE=C.UTF-8
@@ -437,26 +389,23 @@ jobs:
           export XDG_CURRENT_DESKTOP=XFCE
           export XDG_SESSION_DESKTOP=xfce
 
-          export XDG_CONFIG_DIRS="/etc/xdg"
-
           exec dbus-run-session -- startxfce4
           EOF
 
-          sudo chmod +x "/home/$RDP_USER/.xsession"
+          sudo chmod +x "$HOME_DIR/.xsession"
 
           sudo chown \
             "$RDP_USER:$RDP_USER" \
-            "/home/$RDP_USER/.xsession"
+            "$HOME_DIR/.xsession"
 
           echo
-          echo "XSession:"
-          sudo cat "/home/$RDP_USER/.xsession"
+          sudo cat "$HOME_DIR/.xsession"
 
           echo "============================================================"
 
 
       # ============================================================
-      # 8. CONFIGURE XRDP
+      # 9. CONFIGURE XRDP STARTWM
       # ============================================================
       - name: Configure XRDP
         shell: bash
@@ -467,17 +416,17 @@ jobs:
           echo "CONFIGURE XRDP"
           echo "============================================================"
 
-          if [ -f /etc/xrdp/startwm.sh ]; then
-            sudo cp \
-              /etc/xrdp/startwm.sh \
-              /etc/xrdp/startwm.sh.backup
-          fi
+          sudo cp \
+            /etc/xrdp/startwm.sh \
+            /etc/xrdp/startwm.sh.original
 
           sudo tee /etc/xrdp/startwm.sh >/dev/null <<'EOF'
           #!/bin/sh
 
+          unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
           unset XDG_RUNTIME_DIR
+          unset XDG_CONFIG_DIRS
 
           export LANG=C.UTF-8
           export LANGUAGE=C.UTF-8
@@ -487,8 +436,6 @@ jobs:
           export XDG_CURRENT_DESKTOP=XFCE
           export XDG_SESSION_DESKTOP=xfce
 
-          export XDG_CONFIG_DIRS="/etc/xdg"
-
           exec dbus-run-session -- startxfce4
           EOF
 
@@ -497,23 +444,22 @@ jobs:
           sudo adduser xrdp ssl-cert || true
 
           echo
-          echo "XRDP start script:"
+          echo "XRDP startwm:"
           sudo cat /etc/xrdp/startwm.sh
 
-          echo
           echo "============================================================"
 
 
       # ============================================================
-      # 9. TEST XFCONF BEFORE XRDP
+      # 10. FORCE XFCONF INITIALIZATION
       # ============================================================
-      - name: Test XFCONF DBus Session
+      - name: Initialize XFCONF
         shell: bash
         run: |
-          set +e
+          set -e
 
           echo "============================================================"
-          echo "TEST XFCONF / DBUS"
+          echo "INITIALIZE XFCONF"
           echo "============================================================"
 
           sudo -u "$RDP_USER" \
@@ -521,30 +467,98 @@ jobs:
               HOME="/home/$RDP_USER" \
               USER="$RDP_USER" \
               LOGNAME="$RDP_USER" \
-              XDG_CONFIG_DIRS="/etc/xdg" \
-              dbus-run-session -- sh -c '
+              dbus-run-session -- bash -c '
 
-                echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
-                echo "XDG_CONFIG_DIRS=$XDG_CONFIG_DIRS"
+                echo "DBUS:"
+                echo "$DBUS_SESSION_BUS_ADDRESS"
 
                 echo
-                echo "---- FailsafeSessionName ----"
+                echo "XDG_CONFIG_DIRS:"
+                echo "${XDG_CONFIG_DIRS:-<not set>}"
+
+                echo
+                echo "Starting xfconf query..."
 
                 xfconf-query \
                   -c xfce4-session \
                   -p /general/FailsafeSessionName \
-                  || true
+                  -n \
+                  -t string \
+                  -s Failsafe \
+                  2>/dev/null || true
+
+                xfconf-query \
+                  -c xfce4-session \
+                  -p /general/SessionName \
+                  -n \
+                  -t string \
+                  -s Default \
+                  2>/dev/null || true
+
+                echo
+                echo "Failsafe name:"
+
+                xfconf-query \
+                  -c xfce4-session \
+                  -p /general/FailsafeSessionName \
+                  2>/dev/null || true
+
+                echo
+                echo "Session name:"
+
+                xfconf-query \
+                  -c xfce4-session \
+                  -p /general/SessionName \
+                  2>/dev/null || true
+
+              '
+
+          echo "============================================================"
+
+
+      # ============================================================
+      # 11. VERIFY XFCONF
+      # ============================================================
+      - name: Verify XFCONF
+        shell: bash
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "VERIFY XFCONF"
+          echo "============================================================"
+
+          sudo -u "$RDP_USER" \
+            env \
+              HOME="/home/$RDP_USER" \
+              USER="$RDP_USER" \
+              LOGNAME="$RDP_USER" \
+              dbus-run-session -- bash -c '
+
+                echo "---- FailsafeSessionName ----"
+
+                xfconf-query \
+                  -c xfce4-session \
+                  -p /general/FailsafeSessionName
 
                 echo
                 echo "---- SessionName ----"
 
                 xfconf-query \
                   -c xfce4-session \
-                  -p /general/SessionName \
+                  -p /general/SessionName
+
+                echo
+                echo "---- Failsafe WM ----"
+
+                xfconf-query \
+                  -c xfce4-session \
+                  -p /sessions/Failsafe/Client0_Command \
+                  -v \
                   || true
 
                 echo
-                echo "---- XFCE session properties ----"
+                echo "---- All XFCE session values ----"
 
                 xfconf-query \
                   -c xfce4-session \
@@ -554,21 +568,21 @@ jobs:
               '
 
           echo
-          echo "XFCONF TEST FINISHED"
+          echo "XFCONF OK."
 
-          set -e
+          echo "============================================================"
 
 
       # ============================================================
-      # 10. TEST STARTXFCE4
+      # 12. TEST XFCE DIRECTLY
       # ============================================================
-      - name: Test XFCE Session
+      - name: Test XFCE Desktop
         shell: bash
         run: |
           set +e
 
           echo "============================================================"
-          echo "TEST XFCE SESSION"
+          echo "TEST XFCE DESKTOP"
           echo "============================================================"
 
           sudo -u "$RDP_USER" \
@@ -576,16 +590,15 @@ jobs:
               HOME="/home/$RDP_USER" \
               USER="$RDP_USER" \
               LOGNAME="$RDP_USER" \
-              XDG_CONFIG_DIRS="/etc/xdg" \
               dbus-run-session -- \
-              timeout 15 \
+              timeout 20 \
               startxfce4 \
               > /tmp/xfce-test.log 2>&1
 
-          XFCE_EXIT=$?
+          CODE=$?
 
           echo
-          echo "XFCE exit code: $XFCE_EXIT"
+          echo "XFCE exit code: $CODE"
 
           echo
           echo "============================================================"
@@ -597,19 +610,19 @@ jobs:
           echo
           echo "============================================================"
 
-          # timeout is expected because XFCE is a long-running desktop
-          if [ "$XFCE_EXIT" -eq 124 ]; then
-            echo "XFCE started successfully and remained running."
+          if [ "$CODE" = "124" ]; then
+            echo "XFCE stayed running for 20 seconds."
+            echo "Desktop startup is working."
           else
-            echo "XFCE exited with code $XFCE_EXIT."
-            echo "Continuing so XRDP can be tested."
+            echo "XFCE returned code $CODE."
+            echo "Continuing to XRDP."
           fi
 
           set -e
 
 
       # ============================================================
-      # 11. CONFIGURE XRDP SERVICE
+      # 13. ENABLE XRDP
       # ============================================================
       - name: Enable XRDP
         shell: bash
@@ -617,15 +630,24 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "ENABLE XRDP"
+          echo "START XRDP"
           echo "============================================================"
 
           sudo systemctl daemon-reload
 
           sudo systemctl enable xrdp
+
           sudo systemctl restart xrdp
 
-          sleep 3
+          sleep 5
+
+          echo
+          echo "XRDP service:"
+          sudo systemctl is-active xrdp
+
+          echo
+          echo "XRDP port:"
+          sudo ss -lntp | grep ':3389' || true
 
           echo
           echo "XRDP status:"
@@ -633,15 +655,11 @@ jobs:
             --no-pager \
             || true
 
-          echo
-          echo "Listening ports:"
-          sudo ss -lntp | grep ':3389' || true
-
           echo "============================================================"
 
 
       # ============================================================
-      # 12. INSTALL TAILSCALE
+      # 14. INSTALL TAILSCALE
       # ============================================================
       - name: Install Tailscale
         shell: bash
@@ -656,7 +674,7 @@ jobs:
 
           sudo systemctl enable --now tailscaled
 
-          sleep 2
+          sleep 3
 
           tailscale version
 
@@ -664,7 +682,7 @@ jobs:
 
 
       # ============================================================
-      # 13. CONNECT TAILSCALE
+      # 15. CONNECT TAILSCALE
       # ============================================================
       - name: Connect Tailscale
         shell: bash
@@ -678,10 +696,7 @@ jobs:
           echo "============================================================"
 
           if [ -z "$TAILSCALE_AUTH_KEY" ]; then
-            echo "ERROR: TAILSCALE_AUTH_KEY is not configured."
-            echo
-            echo "Add this GitHub Secret:"
-            echo "TAILSCALE_AUTH_KEY"
+            echo "ERROR: TAILSCALE_AUTH_KEY is missing."
             exit 1
           fi
 
@@ -691,26 +706,25 @@ jobs:
 
           sleep 5
 
-          echo
-          echo "Tailscale status:"
-          sudo tailscale status
-
-          echo
-          echo "Tailscale IPv4:"
           TAILSCALE_IP="$(tailscale ip -4)"
-
-          echo "$TAILSCALE_IP"
 
           echo "TAILSCALE_IP=$TAILSCALE_IP" >> "$GITHUB_ENV"
 
           echo
+          echo "Tailscale IP:"
+          echo "$TAILSCALE_IP"
+
+          echo
+          echo "Tailscale status:"
+          sudo tailscale status
+
           echo "============================================================"
 
 
       # ============================================================
-      # 14. CONFIGURE FIREWALL
+      # 16. FIREWALL
       # ============================================================
-      - name: Configure UFW
+      - name: Configure Firewall
         shell: bash
         run: |
           set -e
@@ -719,14 +733,13 @@ jobs:
           echo "CONFIGURE FIREWALL"
           echo "============================================================"
 
-          # Allow Tailscale itself
           sudo ufw allow in on tailscale0
 
-          # Allow XRDP ONLY from Tailscale network
-          sudo ufw allow from 100.64.0.0/10 to any port 3389 proto tcp
-
-          # SSH is not required for XRDP.
-          # Do NOT expose 3389 publicly.
+          sudo ufw allow \
+            from 100.64.0.0/10 \
+            to any \
+            port 3389 \
+            proto tcp
 
           sudo ufw --force enable
 
@@ -737,15 +750,15 @@ jobs:
 
 
       # ============================================================
-      # 15. BLOCK NORMAL SHUTDOWN / REBOOT TARGETS
+      # 17. DISABLE NORMAL REBOOT / SHUTDOWN
       # ============================================================
-      - name: Disable Normal Shutdown Reboot
+      - name: Block Normal Shutdown Reboot
         shell: bash
         run: |
           set -e
 
           echo "============================================================"
-          echo "DISABLE NORMAL SHUTDOWN / REBOOT"
+          echo "BLOCK NORMAL SHUTDOWN / REBOOT"
           echo "============================================================"
 
           sudo systemctl mask \
@@ -760,73 +773,42 @@ jobs:
             hybrid-sleep.target \
             || true
 
-          echo
-          echo "Masked targets:"
-          systemctl list-unit-files \
-            | grep -E \
-              'shutdown.target|reboot.target|poweroff.target|halt.target' \
-            || true
+          echo "Normal shutdown/reboot targets masked."
 
           echo "============================================================"
 
 
       # ============================================================
-      # 16. VERIFY USER
+      # 18. FINAL XRDP CHECK
       # ============================================================
-      - name: Verify RDP User
-        shell: bash
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "VERIFY RDP USER"
-          echo "============================================================"
-
-          id "$RDP_USER"
-
-          echo
-          echo "Home:"
-          ls -la "/home/$RDP_USER"
-
-          echo
-          echo "XSession:"
-          ls -la "/home/$RDP_USER/.xsession"
-
-          echo
-          echo "XFCE configuration:"
-          ls -la \
-            "/home/$RDP_USER/.config/xfce4/xfconf/xfce-perchannel-xml"
-
-          echo "============================================================"
-
-
-      # ============================================================
-      # 17. VERIFY XRDP
-      # ============================================================
-      - name: Verify XRDP
+      - name: Final XRDP Check
         shell: bash
         run: |
           set +e
 
           echo "============================================================"
-          echo "XRDP VERIFICATION"
+          echo "FINAL XRDP CHECK"
           echo "============================================================"
 
           echo
-          echo "XRDP service:"
+          echo "XRDP:"
           sudo systemctl is-active xrdp
 
           echo
-          echo "XRDP enabled:"
-          sudo systemctl is-enabled xrdp
-
-          echo
-          echo "Port 3389:"
+          echo "Listening:"
           sudo ss -lntp | grep ':3389' || true
 
           echo
-          echo "XRDP processes:"
-          ps aux | grep -E 'xrdp|xrdp-sesman' | grep -v grep || true
+          echo "Processes:"
+          ps aux | grep -E 'xrdp|sesman' | grep -v grep || true
+
+          echo
+          echo "Tailscale:"
+          tailscale ip -4
+
+          echo
+          echo "Firewall:"
+          sudo ufw status verbose
 
           echo
           echo "============================================================"
@@ -835,132 +817,90 @@ jobs:
 
 
       # ============================================================
-      # 18. SHOW CONNECTION INFORMATION
+      # 19. SHOW CONNECTION INFORMATION
       # ============================================================
-      - name: Display Remote Connection Information
+      - name: Remote Desktop Information
         shell: bash
         run: |
-          set -e
-
           echo
           echo "################################################################"
           echo "#                                                              #"
-          echo "#                 LaorORG REMOTE DESKTOP                      #"
+          echo "#             LAORORG UBUNTU REMOTE DESKTOP                   #"
           echo "#                                                              #"
           echo "################################################################"
           echo
-          echo "Protocol : RDP"
-          echo "Host     : $TAILSCALE_IP"
-          echo "Port     : 3389"
-          echo "Username : $RDP_USER"
+          echo "RDP HOST:"
+          echo "$TAILSCALE_IP"
           echo
-          echo "RDP address:"
+          echo "RDP PORT:"
+          echo "3389"
+          echo
+          echo "RDP ADDRESS:"
           echo "$TAILSCALE_IP:3389"
           echo
-          echo "Use Microsoft Remote Desktop / Remmina."
+          echo "USERNAME:"
+          echo "$RDP_USER"
           echo
-          echo "Password:"
-          echo "Use the value stored in GitHub Secret RDP_PASSWORD."
+          echo "PASSWORD:"
+          echo "Use GitHub Secret RDP_PASSWORD"
+          echo
+          echo "DESKTOP:"
+          echo "XFCE"
+          echo
+          echo "################################################################"
+          echo
+          echo "IMPORTANT:"
+          echo "Do not close this GitHub Actions workflow."
+          echo "The RDP machine exists only while this job is running."
           echo
           echo "################################################################"
 
 
       # ============================================================
-      # 19. SHOW DIAGNOSTIC INFORMATION
+      # 20. SHOW LOGS
       # ============================================================
-      - name: Diagnostic Information
+      - name: Show XRDP XFCE Logs
         shell: bash
         run: |
           set +e
 
+          echo
           echo "============================================================"
-          echo "FINAL DIAGNOSTICS"
+          echo "XRDP LOG"
           echo "============================================================"
 
-          echo
-          echo "---- SYSTEM ----"
-          hostname
-          uname -a
+          sudo tail -n 100 \
+            /var/log/xrdp.log \
+            2>/dev/null || true
 
           echo
-          echo "---- MEMORY ----"
-          free -h
+          echo "============================================================"
+          echo "XRDP SESMAN LOG"
+          echo "============================================================"
+
+          sudo tail -n 150 \
+            /var/log/xrdp-sesman.log \
+            2>/dev/null || true
 
           echo
-          echo "---- CPU ----"
-          nproc
+          echo "============================================================"
+          echo "XSESSION LOG"
+          echo "============================================================"
 
-          echo
-          echo "---- DISK ----"
-          df -h /
-
-          echo
-          echo "---- TAILSCALE ----"
-          sudo tailscale status
-
-          echo
-          echo "---- TAILSCALE IP ----"
-          tailscale ip -4
-
-          echo
-          echo "---- XRDP ----"
-          sudo systemctl status xrdp \
-            --no-pager \
-            || true
-
-          echo
-          echo "---- PORT 3389 ----"
-          sudo ss -lntp | grep ':3389' || true
-
-          echo
-          echo "---- UFW ----"
-          sudo ufw status verbose
-
-          echo
-          echo "---- XFCE CONFIG ----"
-          sudo cat \
-            /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml \
-            || true
-
-          echo
-          echo "---- USER XFCE CONFIG ----"
-          sudo cat \
-            "/home/$RDP_USER/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml" \
-            || true
-
-          echo
-          echo "---- XSESSION ----"
-          sudo cat \
-            "/home/$RDP_USER/.xsession" \
-            || true
-
-          echo
-          echo "---- XRDP STARTWM ----"
-          sudo cat /etc/xrdp/startwm.sh || true
-
-          echo
-          echo "---- XRDP LOG ----"
-          sudo tail -n 100 /var/log/xrdp.log 2>/dev/null || true
-
-          echo
-          echo "---- XRDP SESMAN LOG ----"
-          sudo tail -n 150 /var/log/xrdp-sesman.log 2>/dev/null || true
-
-          echo
-          echo "---- USER XSESSION LOG ----"
           sudo tail -n 150 \
             "/home/$RDP_USER/.xsession-errors" \
-            2>/dev/null \
-            || true
+            2>/dev/null || true
 
           echo
-          echo "---- JOURNAL XRDP ----"
+          echo "============================================================"
+          echo "SYSTEMD XRDP"
+          echo "============================================================"
+
           sudo journalctl \
             -u xrdp \
             -n 100 \
             --no-pager \
-            2>/dev/null \
-            || true
+            2>/dev/null || true
 
           echo
           echo "============================================================"
@@ -969,9 +909,9 @@ jobs:
 
 
       # ============================================================
-      # 20. KEEP RUNNER ALIVE
+      # 21. KEEP RUNNER ALIVE
       # ============================================================
-      - name: Keep Runner Alive
+      - name: Keep Remote Desktop Alive
         shell: bash
         run: |
           set -e
@@ -979,36 +919,35 @@ jobs:
           echo
           echo "################################################################"
           echo "#                                                              #"
-          echo "#             LaorORG Ubuntu GUI is running                   #"
+          echo "#              UBUNTU GUI IS READY                            #"
           echo "#                                                              #"
           echo "################################################################"
           echo
           echo "RDP:"
           echo "$TAILSCALE_IP:3389"
           echo
-          echo "Username:"
+          echo "USER:"
           echo "$RDP_USER"
           echo
-          echo "XFCE:"
-          echo "Enabled"
+          echo "DESKTOP:"
+          echo "XFCE"
           echo
-          echo "Tailscale:"
-          echo "Connected"
-          echo
-          echo "The GitHub Actions job will remain active."
-          echo "GitHub-hosted runners can still be terminated by GitHub."
-          echo
+          echo "################################################################"
 
           while true
           do
+
             echo
             echo "============================================================"
-            echo "LaorORG Remote Desktop Status"
-            echo "Time: $(date)"
+            echo "LaorORG Remote Desktop"
             echo "============================================================"
 
             echo
-            echo "Tailscale:"
+            echo "Time:"
+            date
+
+            echo
+            echo "Tailscale IP:"
             tailscale ip -4 || true
 
             echo
@@ -1016,11 +955,11 @@ jobs:
             if sudo systemctl is-active --quiet xrdp; then
               echo "RUNNING"
             else
-              echo "NOT RUNNING"
+              echo "STOPPED"
             fi
 
             echo
-            echo "Port 3389:"
+            echo "3389:"
             if sudo ss -lntp | grep -q ':3389'; then
               echo "LISTENING"
             else
@@ -1032,12 +971,16 @@ jobs:
             uptime
 
             echo
-            echo "Memory:"
+            echo "RAM:"
             free -h
 
             echo
-            echo "Disk:"
+            echo "DISK:"
             df -h /
 
+            echo
+            echo "============================================================"
+
             sleep 60
+
           done
