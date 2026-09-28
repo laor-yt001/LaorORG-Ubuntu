@@ -8,12 +8,9 @@ permissions:
 
 jobs:
   ubuntu-gui:
-    name: LaorORG Ubuntu GUI Remote Desktop
+    name: LaorORG Ubuntu XFCE RDP
     runs-on: ubuntu-24.04
 
-    # GitHub-hosted jobs are temporary.
-    # This keeps the workflow alive until it is manually cancelled
-    # or GitHub terminates the runner/job.
     timeout-minutes: 350
 
     env:
@@ -25,52 +22,16 @@ jobs:
     steps:
 
       # ============================================================
-      # SYSTEM INFORMATION
+      # SYSTEM UPDATE
       # ============================================================
-      - name: System Information
+      - name: Update System
         shell: bash
         run: |
-          set -e
-
-          echo "============================================================"
-          echo " LaorORG Ubuntu GUI Runner"
-          echo "============================================================"
-
-          echo "OS:"
-          cat /etc/os-release
-
-          echo ""
-          echo "Kernel:"
-          uname -a
-
-          echo ""
-          echo "CPU:"
-          nproc
-          lscpu | grep -E '^CPU\(s\)|Model name' || true
-
-          echo ""
-          echo "Memory:"
-          free -h
-
-          echo ""
-          echo "Disk:"
-          df -h
-
-          echo "============================================================"
-
-
-      # ============================================================
-      # UPDATE SYSTEM
-      # ============================================================
-      - name: Update Ubuntu
-        shell: bash
-        run: |
-          set -e
+          set -eux
 
           sudo apt-get update
 
-          sudo DEBIAN_FRONTEND=noninteractive \
-            apt-get upgrade -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 
 
       # ============================================================
@@ -79,78 +40,78 @@ jobs:
       - name: Install XFCE Desktop and XRDP
         shell: bash
         run: |
-          set -e
+          set -eux
 
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             xfce4 \
             xfce4-goodies \
+            xfce4-session \
+            xfce4-panel \
+            xfce4-settings \
+            xfconf \
+            xfdesktop4 \
+            xfwm4 \
             xfce4-terminal \
+            dbus \
             dbus-x11 \
+            dbus-user-session \
             xorg \
             xorgxrdp \
             xrdp \
             xauth \
             policykit-1 \
+            policykit-1-gnome \
             curl \
             wget \
-            unzip \
             git \
+            unzip \
             nano \
             vim \
             htop \
             net-tools \
             iproute2 \
             ca-certificates \
-            gnupg \
-            lsb-release \
+            sudo \
             ufw
 
 
       # ============================================================
-      # SET HOSTNAME
+      # HOSTNAME
       # ============================================================
       - name: Configure Hostname
         shell: bash
         run: |
-          set -e
+          set -eux
 
           sudo hostnamectl set-hostname "$HOSTNAME"
 
           echo "$HOSTNAME" | sudo tee /etc/hostname
 
-          CURRENT_HOSTS=$(grep -v "$HOSTNAME" /etc/hosts || true)
+          if ! grep -q "$HOSTNAME" /etc/hosts; then
+            echo "127.0.1.1 $HOSTNAME" | \
+              sudo tee -a /etc/hosts
+          fi
 
-          echo "$CURRENT_HOSTS" | sudo tee /tmp/hosts.new
-
-          echo "127.0.1.1 $HOSTNAME" | \
-            sudo tee -a /tmp/hosts.new
-
-          sudo cp /tmp/hosts.new /etc/hosts
-
-          echo "Hostname:"
           hostname
 
 
       # ============================================================
       # CREATE RDP USER
       # ============================================================
-      - name: Configure runneradmin User
+      - name: Configure RDP User
         shell: bash
         run: |
-          set -e
+          set -eux
 
           if [ -z "$RDP_PASSWORD" ]; then
-            echo "ERROR: RDP_PASSWORD GitHub Secret is empty."
-            echo ""
-            echo "Create this repository secret:"
-            echo "RDP_PASSWORD"
+            echo "ERROR:"
+            echo "RDP_PASSWORD GitHub Secret is missing."
             exit 1
           fi
 
-          # Ubuntu GitHub-hosted runners normally have "runner",
-          # not "runneradmin", so create the requested RDP account.
+          # Create runneradmin if it doesn't exist.
           if id "$RDP_USER" >/dev/null 2>&1; then
-            echo "User $RDP_USER already exists."
+            echo "$RDP_USER already exists"
           else
             sudo useradd \
               --create-home \
@@ -158,87 +119,167 @@ jobs:
               "$RDP_USER"
           fi
 
-          echo "$RDP_USER:$RDP_PASSWORD" | \
-            sudo chpasswd
+          # Set password.
+          echo "$RDP_USER:$RDP_PASSWORD" | sudo chpasswd
 
-          # Add desktop/RDP user to useful groups.
+          # Add groups.
           sudo usermod -aG sudo "$RDP_USER"
           sudo usermod -aG ssl-cert "$RDP_USER"
 
-          # Configure passwordless sudo for this temporary runner.
+          # Passwordless sudo.
           echo "$RDP_USER ALL=(ALL) NOPASSWD:ALL" | \
             sudo tee "/etc/sudoers.d/$RDP_USER"
 
           sudo chmod 440 "/etc/sudoers.d/$RDP_USER"
 
-          # Create XFCE configuration.
-          sudo -u "$RDP_USER" mkdir -p \
-            "/home/$RDP_USER/.config/xfce4"
+          # Make sure home directory belongs to user.
+          sudo chown -R "$RDP_USER:$RDP_USER" \
+            "/home/$RDP_USER"
 
-          sudo -u "$RDP_USER" bash -c \
-            'echo "startxfce4" > ~/.xsession'
-
-          sudo chown "$RDP_USER:$RDP_USER" \
-            "/home/$RDP_USER/.xsession"
-
-          sudo chmod 700 \
-            "/home/$RDP_USER/.xsession"
-
-          echo ""
-          echo "RDP user:"
-          echo "$RDP_USER"
+          echo "User configured:"
+          id "$RDP_USER"
 
 
       # ============================================================
-      # CONFIGURE XRDP
+      # XFCE SESSION CONFIGURATION
       # ============================================================
-      - name: Configure XRDP
+      - name: Configure XFCE Session
         shell: bash
         run: |
-          set -e
+          set -eux
 
-          # Backup original configuration.
-          sudo cp /etc/xrdp/startwm.sh \
-            /etc/xrdp/startwm.sh.backup
+          USER_HOME="/home/$RDP_USER"
 
-          # Configure XRDP to launch XFCE.
-          sudo tee /etc/xrdp/startwm.sh > /dev/null <<'EOF'
+          # Create XFCE directories.
+          sudo -u "$RDP_USER" mkdir -p \
+            "$USER_HOME/.config/xfce4"
+
+          sudo -u "$RDP_USER" mkdir -p \
+            "$USER_HOME/.cache"
+
+          sudo -u "$RDP_USER" mkdir -p \
+            "$USER_HOME/.local/share"
+
+          # --------------------------------------------------------
+          # IMPORTANT:
+          # .xsession launches XFCE through DBus.
+          # --------------------------------------------------------
+          sudo tee "$USER_HOME/.xsession" > /dev/null <<'EOF'
           #!/bin/sh
 
-          if test -r /etc/profile; then
-              . /etc/profile
-          fi
-
-          if test -r "$HOME/.profile"; then
-              . "$HOME/.profile"
-          fi
-
-          unset DBUS_SESSION_BUS_ADDRESS
-          unset XDG_RUNTIME_DIR
+          export LANG=C.UTF-8
+          export LANGUAGE=C.UTF-8
+          export LC_ALL=C.UTF-8
 
           export XDG_CURRENT_DESKTOP=XFCE
           export XDG_SESSION_DESKTOP=xfce
           export XDG_CONFIG_DIRS=/etc/xdg/xdg-xfce:/etc/xdg
           export XDG_DATA_DIRS=/usr/share/xfce4:/usr/local/share:/usr/share
 
-          startxfce4
+          unset DBUS_SESSION_BUS_ADDRESS
+          unset XDG_RUNTIME_DIR
+
+          exec dbus-launch --exit-with-session startxfce4
+          EOF
+
+          sudo chmod +x "$USER_HOME/.xsession"
+
+          sudo chown "$RDP_USER:$RDP_USER" \
+            "$USER_HOME/.xsession"
+
+          # --------------------------------------------------------
+          # XFCE configuration
+          # --------------------------------------------------------
+          sudo -u "$RDP_USER" mkdir -p \
+            "$USER_HOME/.config/xfce4/xfconf/xfce-perchannel-xml"
+
+          # Disable screen blanking for the remote session.
+          sudo -u "$RDP_USER" tee \
+            "$USER_HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-power-manager.xml" \
+            > /dev/null <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+
+          <channel name="xfce4-power-manager" version="1.0">
+            <property name="xfce4-power-manager" type="empty">
+              <property name="blank-on-ac" type="int" value="0"/>
+              <property name="dpms-enabled" type="bool" value="false"/>
+              <property name="dpms-on-ac-sleep" type="int" value="0"/>
+              <property name="dpms-on-ac-off" type="int" value="0"/>
+            </property>
+          </channel>
+          EOF
+
+          sudo chown -R "$RDP_USER:$RDP_USER" \
+            "$USER_HOME/.config"
+
+          echo "XFCE session configured."
+
+
+      # ============================================================
+      # XRDP CONFIGURATION
+      # ============================================================
+      - name: Configure XRDP
+        shell: bash
+        run: |
+          set -eux
+
+          # Backup configuration.
+          sudo cp \
+            /etc/xrdp/startwm.sh \
+            /etc/xrdp/startwm.sh.backup
+
+          # --------------------------------------------------------
+          # Correct XRDP startup script
+          # --------------------------------------------------------
+          sudo tee /etc/xrdp/startwm.sh > /dev/null <<'EOF'
+          #!/bin/sh
+
+          if [ -r /etc/profile ]; then
+              . /etc/profile
+          fi
+
+          if [ -r "$HOME/.profile" ]; then
+              . "$HOME/.profile"
+          fi
+
+          export LANG=C.UTF-8
+          export LANGUAGE=C.UTF-8
+          export LC_ALL=C.UTF-8
+
+          export XDG_CURRENT_DESKTOP=XFCE
+          export XDG_SESSION_DESKTOP=xfce
+          export XDG_CONFIG_DIRS=/etc/xdg/xdg-xfce:/etc/xdg
+          export XDG_DATA_DIRS=/usr/share/xfce4:/usr/local/share:/usr/share
+
+          unset DBUS_SESSION_BUS_ADDRESS
+          unset XDG_RUNTIME_DIR
+
+          # Start XFCE with a DBus session.
+          exec dbus-launch --exit-with-session startxfce4
           EOF
 
           sudo chmod +x /etc/xrdp/startwm.sh
 
-          # XRDP certificate permissions.
+          # XRDP needs certificate access.
           sudo adduser xrdp ssl-cert || true
 
-          # Enable XRDP.
+          # Enable services.
           sudo systemctl enable xrdp
           sudo systemctl enable xrdp-sesman
 
-          sudo systemctl restart xrdp
+          # Restart.
           sudo systemctl restart xrdp-sesman
+          sudo systemctl restart xrdp
+
+          sleep 3
 
           echo ""
-          echo "XRDP status:"
+          echo "XRDP:"
           sudo systemctl --no-pager status xrdp || true
+
+          echo ""
+          echo "XRDP-Sesman:"
+          sudo systemctl --no-pager status xrdp-sesman || true
 
 
       # ============================================================
@@ -247,13 +288,11 @@ jobs:
       - name: Install Tailscale
         shell: bash
         run: |
-          set -e
+          set -eux
 
           if [ -z "$TAILSCALE_AUTH_KEY" ]; then
-            echo "ERROR: TAILSCALE_AUTH_KEY GitHub Secret is empty."
-            echo ""
-            echo "Create this repository secret:"
-            echo "TAILSCALE_AUTH_KEY"
+            echo "ERROR:"
+            echo "TAILSCALE_AUTH_KEY GitHub Secret is missing."
             exit 1
           fi
 
@@ -263,8 +302,8 @@ jobs:
           sudo systemctl enable tailscaled
           sudo systemctl start tailscaled
 
-          echo ""
-          echo "Tailscale version:"
+          sleep 3
+
           tailscale version
 
 
@@ -274,7 +313,7 @@ jobs:
       - name: Connect Tailscale
         shell: bash
         run: |
-          set -e
+          set -eux
 
           sudo tailscale up \
             --auth-key="$TAILSCALE_AUTH_KEY" \
@@ -284,14 +323,12 @@ jobs:
           sleep 5
 
           echo ""
-          echo "============================================================"
-          echo " TAILSCALE STATUS"
-          echo "============================================================"
-
-          sudo tailscale status
+          echo "Tailscale status:"
+          tailscale status
 
           echo ""
           echo "Tailscale IPv4:"
+
           TAILSCALE_IP=$(tailscale ip -4)
 
           echo "$TAILSCALE_IP"
@@ -300,96 +337,77 @@ jobs:
 
 
       # ============================================================
-      # CONFIGURE UFW
+      # FIREWALL
       # ============================================================
       - name: Configure Firewall
         shell: bash
         run: |
-          set -e
+          set -eux
 
-          # Reset UFW rules.
           sudo ufw --force reset
 
-          # Default policy.
           sudo ufw default deny incoming
           sudo ufw default allow outgoing
 
-          # SSH is optional. We don't need public SSH.
-          # Do NOT open RDP publicly.
-
-          # Allow XRDP ONLY from the Tailscale CGNAT range.
-          sudo ufw allow from 100.64.0.0/10 \
+          # RDP ONLY through Tailscale.
+          sudo ufw allow \
+            from 100.64.0.0/10 \
             to any port 3389 \
             proto tcp
 
-          # Allow Tailscale interface.
+          # Tailscale interface.
           sudo ufw allow in on tailscale0
 
-          # Enable firewall.
           sudo ufw --force enable
 
           echo ""
-          echo "Firewall:"
           sudo ufw status verbose
 
 
       # ============================================================
-      # PROTECT AGAINST SHUTDOWN / REBOOT
+      # TEST XFCE BEFORE RDP
       # ============================================================
-      - name: Disable Shutdown and Reboot Targets
+      - name: Verify XFCE Installation
         shell: bash
         run: |
-          set -e
+          set -eux
 
-          echo "Masking shutdown/reboot targets..."
+          echo "XFCE binaries:"
 
-          sudo systemctl mask shutdown.target || true
-          sudo systemctl mask reboot.target || true
-          sudo systemctl mask halt.target || true
-          sudo systemctl mask poweroff.target || true
+          command -v startxfce4
+          command -v xfce4-session
+          command -v xfconf-query
+          command -v dbus-launch
 
           echo ""
-          echo "Shutdown/reboot target status:"
+          echo "XFCE version:"
+          xfce4-session --version || true
 
-          systemctl is-enabled shutdown.target 2>/dev/null || true
-          systemctl is-enabled reboot.target 2>/dev/null || true
-          systemctl is-enabled halt.target 2>/dev/null || true
-          systemctl is-enabled poweroff.target 2>/dev/null || true
+          echo ""
+          echo "DBus:"
+          dbus-launch --version || true
 
-
-      # ============================================================
-      # DISABLE AUTOMATIC APT REBOOT NOTIFICATION
-      # ============================================================
-      - name: Disable Automatic Reboot Helpers
-        shell: bash
-        run: |
-          set -e
-
-          # These are only best-effort protections.
-          # GitHub can still terminate the hosted VM itself.
-          sudo systemctl mask \
-            apt-daily-upgrade.timer 2>/dev/null || true
-
-          sudo systemctl mask \
-            apt-daily.timer 2>/dev/null || true
-
-          echo "Automatic apt timers handled."
+          echo ""
+          echo "Installed XFCE packages:"
+          dpkg -l | grep -E \
+            'xfce4|xfconf|xfdesktop|xfwm4|dbus-x11|xrdp|xorgxrdp' \
+            || true
 
 
       # ============================================================
-      # VERIFY XRDP
+      # TEST XRDP
       # ============================================================
       - name: Verify XRDP
         shell: bash
         run: |
-          set -e
+          set -eux
 
           echo "XRDP service:"
           sudo systemctl is-active xrdp
 
           echo ""
-          echo "Listening ports:"
-          sudo ss -lntp | grep 3389 || true
+          echo "XRDP port:"
+          sudo ss -lntp | grep ':3389' || true
 
           echo ""
           echo "XRDP processes:"
@@ -397,135 +415,72 @@ jobs:
 
 
       # ============================================================
-      # VERIFY TAILSCALE
+      # SHUTDOWN / REBOOT PROTECTION
       # ============================================================
-      - name: Verify Tailscale
+      - name: Disable Shutdown and Reboot Targets
         shell: bash
         run: |
-          set -e
+          set -eux
 
-          echo "Tailscale service:"
-          sudo systemctl is-active tailscaled
+          sudo systemctl mask shutdown.target || true
+          sudo systemctl mask reboot.target || true
+          sudo systemctl mask halt.target || true
+          sudo systemctl mask poweroff.target || true
 
-          echo ""
-          echo "Tailscale IP:"
-          tailscale ip -4
-
-          echo ""
-          echo "Tailscale status:"
-          tailscale status
+          echo "Shutdown/reboot targets masked."
 
 
       # ============================================================
-      # VERIFY FIREWALL
+      # FINAL INFORMATION
       # ============================================================
-      - name: Verify Firewall
-        shell: bash
-        run: |
-          echo "============================================================"
-          echo " FIREWALL"
-          echo "============================================================"
-
-          sudo ufw status numbered
-
-
-      # ============================================================
-      # SHOW REMOTE CONNECTION INFORMATION
-      # ============================================================
-      - name: Show Remote Desktop Information
+      - name: Display Remote Desktop Information
         shell: bash
         run: |
           TAILSCALE_IP=$(tailscale ip -4)
 
           echo ""
           echo "============================================================"
-          echo "        LaorORG UBUNTU GUI IS READY"
+          echo "       LAORORG UBUNTU GUI READY"
           echo "============================================================"
           echo ""
-          echo "Operating System : Ubuntu 24.04"
-          echo "Desktop          : XFCE"
-          echo "Remote Protocol  : RDP / XRDP"
+          echo "OS:"
+          echo "Ubuntu 24.04"
           echo ""
-          echo "Tailscale IP     : $TAILSCALE_IP"
-          echo "RDP Address      : $TAILSCALE_IP:3389"
+          echo "Desktop:"
+          echo "XFCE"
           echo ""
-          echo "Username         : runneradmin"
-          echo "Password         : GitHub Secret RDP_PASSWORD"
-          echo ""
-          echo "============================================================"
-          echo " WINDOWS CONNECTION"
-          echo "============================================================"
-          echo ""
-          echo "1. Install/login to Tailscale on your Windows PC."
-          echo ""
-          echo "2. Open:"
-          echo "   Remote Desktop Connection"
-          echo ""
-          echo "3. Enter:"
-          echo "   $TAILSCALE_IP:3389"
-          echo ""
-          echo "4. Username:"
-          echo "   runneradmin"
-          echo ""
-          echo "5. Password:"
-          echo "   Your RDP_PASSWORD secret"
-          echo ""
-          echo "============================================================"
-
-
-      # ============================================================
-      # FINAL SYSTEM CHECK
-      # ============================================================
-      - name: Final System Check
-        shell: bash
-        run: |
-          echo ""
-          echo "============================================================"
-          echo " FINAL SYSTEM CHECK"
-          echo "============================================================"
-
-          echo ""
-          echo "Hostname:"
-          hostname
-
-          echo ""
-          echo "Uptime:"
-          uptime
-
-          echo ""
-          echo "CPU:"
-          nproc
-
-          echo ""
-          echo "Memory:"
-          free -h
-
-          echo ""
-          echo "Disk:"
-          df -h /
-
-          echo ""
-          echo "XRDP:"
-          sudo systemctl is-active xrdp || true
-
-          echo ""
-          echo "Tailscale:"
-          sudo systemctl is-active tailscaled || true
-
+          echo "Remote Desktop:"
+          echo "XRDP"
           echo ""
           echo "Tailscale IP:"
-          tailscale ip -4 || true
-
+          echo "$TAILSCALE_IP"
           echo ""
-          echo "Firewall:"
-          sudo ufw status || true
-
+          echo "RDP:"
+          echo "$TAILSCALE_IP:3389"
+          echo ""
+          echo "Username:"
+          echo "runneradmin"
+          echo ""
+          echo "Password:"
+          echo "RDP_PASSWORD GitHub Secret"
+          echo ""
+          echo "============================================================"
+          echo "CONNECT FROM WINDOWS"
+          echo "============================================================"
+          echo ""
+          echo "mstsc"
+          echo ""
+          echo "Computer:"
+          echo "$TAILSCALE_IP:3389"
+          echo ""
+          echo "Username:"
+          echo "runneradmin"
           echo ""
           echo "============================================================"
 
 
       # ============================================================
-      # KEEP RUNNER ALIVE
+      # KEEP ALIVE
       # ============================================================
       - name: Keep Ubuntu GUI Alive
         shell: bash
@@ -534,38 +489,19 @@ jobs:
 
           echo ""
           echo "============================================================"
-          echo " LaorORG Ubuntu GUI RUNNER IS ONLINE"
-          echo "============================================================"
-
-          TAILSCALE_IP=$(tailscale ip -4 2>/dev/null)
-
-          echo ""
-          echo "RDP:"
-          echo "$TAILSCALE_IP:3389"
-
-          echo ""
-          echo "Username:"
-          echo "runneradmin"
-
-          echo ""
-          echo "Desktop:"
-          echo "XFCE"
-
-          echo ""
-          echo "Remote:"
-          echo "Tailscale + XRDP"
-
-          echo ""
-          echo "The workflow will remain running."
+          echo " LAORORG UBUNTU GUI ONLINE"
           echo "============================================================"
 
           while true
           do
-
             echo ""
             echo "------------------------------------------------------------"
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] LaorORG runner alive"
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] RUNNER ALIVE"
             echo "------------------------------------------------------------"
+
+            echo ""
+            echo "Hostname:"
+            hostname
 
             echo ""
             echo "Uptime:"
@@ -574,10 +510,6 @@ jobs:
             echo ""
             echo "CPU:"
             nproc
-
-            echo ""
-            echo "Load:"
-            cat /proc/loadavg
 
             echo ""
             echo "Memory:"
@@ -596,19 +528,11 @@ jobs:
             sudo systemctl is-active xrdp 2>/dev/null || true
 
             echo ""
-            echo "Tailscale:"
-            sudo systemctl is-active tailscaled 2>/dev/null || true
-
-            echo ""
-            echo "RDP listening:"
+            echo "XRDP port:"
             sudo ss -lntp 2>/dev/null | grep ':3389' || true
 
             echo ""
             echo "------------------------------------------------------------"
-            echo "Runner remains online."
-            echo "------------------------------------------------------------"
 
-            # Check every 5 minutes.
             sleep 300
-
           done
